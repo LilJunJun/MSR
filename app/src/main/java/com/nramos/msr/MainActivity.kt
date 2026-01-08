@@ -1,7 +1,9 @@
 package com.nramos.msr
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -25,11 +27,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
+import androidx.core.content.getSystemService
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nramos.msr.RecordService.Companion.KEY_RECORDING_CONFIG
+import com.nramos.msr.RecordService.Companion.START_RECORDING
+import com.nramos.msr.RecordService.Companion.STOP_RECORDING
 import com.nramos.msr.ui.theme.CoralRed
 import com.nramos.msr.ui.theme.MintGreen
 import com.nramos.msr.ui.theme.RecordScreenTheme
 
 class MainActivity : AppCompatActivity() {
+    //reference to our mediaProjectionManager
+    private val mediaProjectionManager by lazy {
+        getSystemService<MediaProjectionManager>()!!
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -38,9 +50,8 @@ class MainActivity : AppCompatActivity() {
             RecordScreenTheme {
 
             }
-            var isServiceRunning by remember {
-                mutableStateOf(false)
-            }
+            //state that we listen to directly from our service's companion object
+            val isServiceRunning by RecordService.isServiceRunning.collectAsStateWithLifecycle()
 
             //local state to see if we have permission on certain api levels
             var hasNotificationPermission by remember {
@@ -55,12 +66,37 @@ class MainActivity : AppCompatActivity() {
                 } else mutableStateOf(true)
             }
 
+            val screenRecordLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.StartActivityForResult()
+            ) { result -> //called when we confirm or decline the dialog for screen recording
+                val intent = result.data ?: return@rememberLauncherForActivityResult //get the result data from dialog
+                val config = ScreenRecordConfig(
+                    resultCode = result.resultCode,
+                    data = intent
+                )
+
+                val serviceIntent = Intent(
+                    applicationContext,
+                    RecordService::class.java
+                ).apply {
+                    action = START_RECORDING
+                    putExtra(KEY_RECORDING_CONFIG, config)
+                }
+
+                startForegroundService(serviceIntent) //sends our intent and starts our service
+            }
+
             val permissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission()
             ) { isGranted ->
                 hasNotificationPermission = isGranted
                 if (hasNotificationPermission && !isServiceRunning) {
-                    //todo: launch our media projection service
+                    //launch our media projection service with an intent
+                    screenRecordLauncher.launch(
+                        //this creates our intent that will launch our initial dialog where user can pick what kind of screen they want to record (single app or entire screen)
+                        mediaProjectionManager.createScreenCaptureIntent()
+                    )
+
                 }
             }
             Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
@@ -77,9 +113,17 @@ class MainActivity : AppCompatActivity() {
                                 permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                             } else {
                                 if(isServiceRunning) {
-                                    //todo: stop service
+                                    //declare intent that we want to stop the service
+                                    Intent(applicationContext, RecordService::class.java).also {
+                                        it.action = STOP_RECORDING
+                                        startForegroundService(it) //deliver this intent here to the service so we can stop it
+                                    }
                                 } else {
-                                    //todo: start service
+                                    //launch our media projection service with an intent
+                                    screenRecordLauncher.launch(
+                                        //this creates our intent that will launch our initial dialog where user can pick what kind of screen they want to record (single app or entire screen)
+                                        mediaProjectionManager.createScreenCaptureIntent()
+                                    )
                                 }
                             }
                         },
