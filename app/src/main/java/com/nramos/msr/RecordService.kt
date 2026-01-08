@@ -66,6 +66,7 @@ class RecordService : Service() {
         when (intent?.action) {
             START_RECORDING -> {
                 val notification = NotificationHelper.createNotification(applicationContext)
+                NotificationHelper.createNotificationChannel(applicationContext)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     startForeground(
                         1, //must be 1 at least
@@ -100,7 +101,6 @@ class RecordService : Service() {
             intent.getParcelableExtra(KEY_RECORDING_CONFIG,)
         }
 
-
         if (config == null) {
             return //in case we get an invalid intent, nothing we can do
         }
@@ -120,6 +120,7 @@ class RecordService : Service() {
 
     private fun stopRecording() {
         mediaRecorder.stop()
+        mediaProjection?.stop()
         mediaRecorder.reset()
     }
 
@@ -245,7 +246,6 @@ class RecordService : Service() {
         mediaRecorder.release()
         virtualDisplay?.release()
         mediaProjection?.unregisterCallback(mediaProjectionCallback)
-        mediaProjection?.stop()
         mediaProjection = null
     }
 
